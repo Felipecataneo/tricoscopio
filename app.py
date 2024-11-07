@@ -6,6 +6,22 @@ import io
 from PIL import Image
 import time
 import base64
+import subprocess
+import os
+
+def check_video_devices():
+    """Verifica dispositivos de vídeo disponíveis no sistema Linux."""
+    try:
+        # Tenta listar dispositivos de vídeo disponíveis
+        devices = []
+        for i in range(10):  # Verifica até 10 possíveis dispositivos
+            device_path = f"/dev/video{i}"
+            if os.path.exists(device_path):
+                devices.append(i)
+        return devices
+    except Exception as e:
+        st.error(f"Erro ao verificar dispositivos: {str(e)}")
+        return []
 
 class SafeCamera:
     def __init__(self):
@@ -24,14 +40,28 @@ class SafeCamera:
             if self.cap is not None:
                 self.release()
             
-            # Tenta várias vezes inicializar a câmera
-            for _ in range(3):
-                self.cap = cv2.VideoCapture(index)
-                if self.cap.isOpened():
-                    break
-                time.sleep(1)
-                
-            if not self.cap.isOpened():
+            st.info(f"Tentando inicializar câmera {index}")
+            
+            # Verifica se o dispositivo existe
+            device_path = f"/dev/video{index}"
+            if not os.path.exists(device_path):
+                st.error(f"Dispositivo {device_path} não encontrado")
+                return False
+            
+            # Tenta diferentes backends do OpenCV
+            backends = [cv2.CAP_V4L2, cv2.CAP_V4L]
+            
+            for backend in backends:
+                try:
+                    self.cap = cv2.VideoCapture(index, backend)
+                    if self.cap.isOpened():
+                        st.success(f"Câmera inicializada com backend {backend}")
+                        break
+                except Exception as e:
+                    st.warning(f"Falha ao tentar backend {backend}: {str(e)}")
+            
+            if not self.cap or not self.cap.isOpened():
+                st.error("Nenhum backend funcionou")
                 return False
             
             # Configurações básicas
@@ -39,7 +69,7 @@ class SafeCamera:
             self.cap.set(cv2.CAP_PROP_FPS, 15)
             
             # Define resolução inicial
-            resolution = self.resolutions[0]  # Começa com a menor resolução
+            resolution = self.resolutions[0]
             self.set_resolution(resolution[0], resolution[1])
             
             self.initialized = True
@@ -49,7 +79,7 @@ class SafeCamera:
             st.error(f"Erro na inicialização da câmera: {str(e)}")
             self.release()
             return False
-    
+
     def set_resolution(self, width, height):
         if not self.initialized:
             return None, None
@@ -61,6 +91,7 @@ class SafeCamera:
             actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
             actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
             
+            st.info(f"Resolução definida: {actual_width}x{actual_height}")
             return actual_width, actual_height
             
         except Exception as e:
@@ -88,21 +119,28 @@ class SafeCamera:
 def detect_cameras():
     """Detecta câmeras disponíveis no sistema."""
     available_cameras = []
-    # Testando apenas índices positivos
-    for i in range(4):  # 0 a 3
+    
+    # Verifica dispositivos de vídeo no Linux
+    video_devices = check_video_devices()
+    st.info(f"Dispositivos de vídeo encontrados: {video_devices}")
+    
+    for i in video_devices:
         try:
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
                 name = f"Camera {i}"
                 available_cameras.append((i, name))
             cap.release()
-        except Exception:
+        except Exception as e:
+            st.warning(f"Erro ao testar câmera {i}: {str(e)}")
             continue
     
     if not available_cameras:
         available_cameras.append((0, "Camera 0"))  # Fallback para câmera padrão
     
     return available_cameras
+
+
 
 def get_image_download_link(img, filename, text):
     """Gera um link para download da imagem."""
