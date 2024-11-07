@@ -24,14 +24,22 @@ class SafeCamera:
             if self.cap is not None:
                 self.release()
             
-            self.cap = cv2.VideoCapture(index)
+            # Tenta várias vezes inicializar a câmera
+            for _ in range(3):
+                self.cap = cv2.VideoCapture(index)
+                if self.cap.isOpened():
+                    break
+                time.sleep(1)
+                
             if not self.cap.isOpened():
                 return False
             
+            # Configurações básicas
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self.cap.set(cv2.CAP_PROP_FPS, 15)
             
-            resolution = self.resolutions[self.current_resolution_index]
+            # Define resolução inicial
+            resolution = self.resolutions[0]  # Começa com a menor resolução
             self.set_resolution(resolution[0], resolution[1])
             
             self.initialized = True
@@ -62,7 +70,11 @@ class SafeCamera:
     def read(self):
         if not self.initialized or self.cap is None:
             return False, None
-        return self.cap.read()
+        try:
+            return self.cap.read()
+        except Exception as e:
+            st.error(f"Erro na leitura da câmera: {str(e)}")
+            return False, None
     
     def release(self):
         try:
@@ -76,8 +88,8 @@ class SafeCamera:
 def detect_cameras():
     """Detecta câmeras disponíveis no sistema."""
     available_cameras = []
-    # Incluindo o índice -1 para testar no seu caso específico
-    for i in range(-1, 3):  # Ajuste para incluir -1
+    # Testando apenas índices positivos
+    for i in range(4):  # 0 a 3
         try:
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
@@ -88,7 +100,7 @@ def detect_cameras():
             continue
     
     if not available_cameras:
-        available_cameras.append((-1, "Nenhuma câmera detectada"))  # Fallback option
+        available_cameras.append((0, "Camera 0"))  # Fallback para câmera padrão
     
     return available_cameras
 
@@ -104,6 +116,14 @@ def get_image_download_link(img, filename, text):
 def main():
     st.set_page_config(page_title="Tricoscópio Digital", layout="wide")
     
+    # Aviso sobre ambiente cloud
+    if not st.session_state.get('warning_shown'):
+        st.warning("""
+        Nota: Este aplicativo pode ter funcionalidade limitada no ambiente cloud.
+        Para melhor experiência, considere executar localmente.
+        """)
+        st.session_state.warning_shown = True
+
     st.title("Visualizador de Tricoscópio Digital")
     
     # Inicialização da sessão state
@@ -119,30 +139,18 @@ def main():
 
         # Seleção de dispositivo
         available_cameras = st.session_state.available_cameras
-        
         camera_names = [name for _, name in available_cameras]
-
-        # Garantir que a lista não está vazia
-        if not camera_names:
-            camera_names = ["Nenhuma câmera detectada"]
-
-        # Validate current_camera_index
-        if st.session_state.current_camera_index >= len(camera_names):
-            st.session_state.current_camera_index = 0  # Ajusta para o primeiro índice válido
 
         selected_camera_name = st.selectbox(
             "Selecione o dispositivo",
             camera_names,
-            index=st.session_state.current_camera_index
+            index=0
         )
         
-        # Mapeia a seleção do selectbox para o índice de câmera
         selected_camera_index = next(
             (idx for idx, name in available_cameras if name == selected_camera_name),
-            available_cameras[0][0]  # Fallback para a primeira câmera se não encontrar
+            0  # Fallback para câmera 0
         )
-
-        st.session_state.current_camera_index = camera_names.index(selected_camera_name)
 
         # Seleção de resolução
         resolutions = {
@@ -158,19 +166,20 @@ def main():
         
         # Botão para iniciar/parar câmera
         if not st.session_state.camera_active:
-            if st.button("Iniciar Câmera") and selected_camera_index != -1:
-                # Tenta inicializar a câmera selecionada
-                if st.session_state.camera.initialize(selected_camera_index):
-                    width, height = resolutions[selected_resolution]
-                    st.session_state.camera.set_resolution(width, height)
-                    st.session_state.camera_active = True
-                    st.success(f"Câmera iniciada com índice {selected_camera_index}")
-                else:
-                    st.error(f"Não foi possível inicializar a câmera com índice {selected_camera_index}")
+            if st.button("Iniciar Câmera"):
+                with st.spinner('Inicializando câmera...'):
+                    if st.session_state.camera.initialize(selected_camera_index):
+                        width, height = resolutions[selected_resolution]
+                        st.session_state.camera.set_resolution(width, height)
+                        st.session_state.camera_active = True
+                        st.success(f"Câmera iniciada com sucesso")
+                    else:
+                        st.error("Falha ao inicializar a câmera")
         else:
             if st.button("Parar Câmera"):
                 st.session_state.camera.release()
                 st.session_state.camera_active = False
+                st.success("Câmera desativada")
         
         # Botão para capturar imagem
         if st.session_state.camera_active:
@@ -190,12 +199,18 @@ def main():
         st.header("Visualização em Tempo Real")
         video_placeholder = st.empty()
         
-        while st.session_state.camera_active:
-            ret, frame = st.session_state.camera.read()
-            if ret:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
-            time.sleep(0.033)
+        if st.session_state.camera_active:
+            try:
+                while st.session_state.camera_active:
+                    ret, frame = st.session_state.camera.read()
+                    if ret:
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
+                    time.sleep(0.033)
+            except Exception as e:
+                st.error(f"Erro na transmissão: {str(e)}")
+                st.session_state.camera_active = False
+                st.session_state.camera.release()
     
     with col2:
         st.header("Última Captura")
