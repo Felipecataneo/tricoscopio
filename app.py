@@ -120,11 +120,11 @@ def main():
         # Seleção de dispositivo
         available_cameras = st.session_state.available_cameras
         
-        if not available_cameras:
-            st.error("Nenhuma câmera detectada")
-            return
-        
         camera_names = [name for _, name in available_cameras]
+
+        # Garantir que a lista não está vazia
+        if not camera_names:
+            camera_names = ["Nenhuma câmera detectada"]
 
         # Validate current_camera_index
         if st.session_state.current_camera_index >= len(camera_names):
@@ -136,12 +136,14 @@ def main():
             index=st.session_state.current_camera_index
         )
         
-        # Encontra o índice da câmera selecionada
-        selected_camera_index = next(
-            (idx for idx, name in available_cameras if name == selected_camera_name),
-            available_cameras[0][0]  # Fallback para a primeira câmera se não encontrar
-        )
-        st.session_state.current_camera_index = selected_camera_index
+        # Mapeia a seleção do selectbox para o índice de câmera
+        selected_camera_index = -1  # Fallback
+        for idx, name in available_cameras:
+            if name == selected_camera_name:
+                selected_camera_index = idx
+                break
+
+        st.session_state.current_camera_index = camera_names.index(selected_camera_name)
         
         # Seleção de resolução
         resolutions = {
@@ -157,7 +159,7 @@ def main():
         
         # Botão para iniciar/parar câmera
         if not st.session_state.camera_active:
-            if st.button("Iniciar Câmera"):
+            if st.button("Iniciar Câmera") and selected_camera_index != -1:
                 # Tenta inicializar a câmera selecionada
                 if st.session_state.camera.initialize(selected_camera_index):
                     width, height = resolutions[selected_resolution]
@@ -165,16 +167,7 @@ def main():
                     st.session_state.camera_active = True
                     st.success(f"Câmera iniciada com índice {selected_camera_index}")
                 else:
-                    # Se a inicialização falhar, tenta o próximo índice
-                    next_camera_index = (selected_camera_index + 1) % len(available_cameras)
-                    if st.session_state.camera.initialize(next_camera_index):
-                        width, height = resolutions[selected_resolution]
-                        st.session_state.camera.set_resolution(width, height)
-                        st.session_state.camera_active = True
-                        st.session_state.current_camera_index = next_camera_index
-                        st.success(f"Câmera iniciada com índice {next_camera_index}")
-                    else:
-                        st.error(f"Não foi possível inicializar a câmera com índice {selected_camera_index} ou {next_camera_index}")
+                    st.error(f"Não foi possível inicializar a câmera com índice {selected_camera_index}")
         else:
             if st.button("Parar Câmera"):
                 st.session_state.camera.release()
