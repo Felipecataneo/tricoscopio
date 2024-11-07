@@ -76,21 +76,19 @@ class SafeCamera:
 def detect_cameras():
     """Detecta câmeras disponíveis no sistema."""
     available_cameras = []
-    # Testa índices de -1 a 10
-    for i in range(-1, 11):
+    # Testa índices de 0 a 2, reduzir o teste aos índices mais prováveis
+    for i in range(0, 3):
         try:
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
                 name = f"Camera {i}"
-                if i == -1:
-                    name = "Tricoscópio USB (índice -1)"
                 available_cameras.append((i, name))
             cap.release()
         except Exception:
             continue
     
     if not available_cameras:
-        available_cameras.append((-1, "Tricoscópio USB (índice -1)"))  # Fallback option
+        available_cameras.append((-1, "Nenhuma câmera detectada"))  # Fallback option
     
     return available_cameras
 
@@ -128,10 +126,9 @@ def main():
         
         camera_names = [name for _, name in available_cameras]
 
-                # Validate current_camera_index
-        if st.session_state.current_camera_index >= len(available_cameras):
-            st.session_state.current_camera_index = -1
-
+        # Validate current_camera_index
+        if st.session_state.current_camera_index >= len(camera_names):
+            st.session_state.current_camera_index = 0  # Ajusta para o primeiro índice válido
 
         selected_camera_name = st.selectbox(
             "Selecione o dispositivo",
@@ -231,4 +228,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
