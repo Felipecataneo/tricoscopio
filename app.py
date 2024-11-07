@@ -28,34 +28,35 @@ class SafeCamera:
             
             # Lista de tentativas de inicialização
             attempts = [
-                lambda: cv2.VideoCapture(index),
-                lambda: cv2.VideoCapture(index + cv2.CAP_V4L),
-                lambda: cv2.VideoCapture(index + cv2.CAP_V4L2),
-                lambda: cv2.VideoCapture(-1),
-                lambda: cv2.VideoCapture(-1 + cv2.CAP_V4L),
-                lambda: cv2.VideoCapture(-1 + cv2.CAP_V4L2)
+                (index, cv2.CAP_ANY),
+                (index, cv2.CAP_V4L2),
+                (index, cv2.CAP_V4L),
+                (-1, cv2.CAP_ANY),
+                (-1, cv2.CAP_V4L2),
+                (-1, cv2.CAP_V4L)
             ]
             
-            for i, attempt in enumerate(attempts):
+            for idx, backend in attempts:
                 try:
-                    st.info(f"Tentativa {i+1} de inicialização...")
-                    self.cap = attempt()
+                    st.info(f"Tentando índice {idx} com backend {backend}")
+                    self.cap = cv2.VideoCapture(idx, backend)
+                    
                     if self.cap.isOpened():
-                        st.success(f"Câmera inicializada na tentativa {i+1}")
-                        
-                        # Configurações básicas
-                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                        self.cap.set(cv2.CAP_PROP_FPS, 15)
-                        
-                        # Testa se consegue ler um frame
+                        # Tenta ler um frame para confirmar que está funcionando
                         ret, frame = self.cap.read()
                         if ret:
+                            st.success(f"Câmera inicializada com índice {idx} e backend {backend}")
+                            
+                            # Configurações básicas
+                            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                            self.cap.set(cv2.CAP_PROP_FPS, 15)
+                            
                             self.initialized = True
                             return True
                         else:
                             self.cap.release()
                 except Exception as e:
-                    st.warning(f"Tentativa {i+1} falhou: {str(e)}")
+                    st.warning(f"Tentativa falhou: {str(e)}")
                     continue
             
             st.error("Não foi possível inicializar a câmera com nenhum método")
@@ -108,22 +109,21 @@ def detect_cameras():
     # Adiciona opção de auto-detecção
     available_cameras.append((-1, "Auto Detect Camera"))
     
-    # Testa índices positivos
+    # Testa diferentes combinações de índices e backends
     for i in range(4):
-        try:
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                ret, frame = cap.read()
-                if ret:
-                    name = f"Camera {i}"
-                    available_cameras.append((i, name))
-            cap.release()
-        except Exception:
-            continue
+        for backend in [cv2.CAP_ANY, cv2.CAP_V4L2, cv2.CAP_V4L]:
+            try:
+                cap = cv2.VideoCapture(i, backend)
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    if ret:
+                        name = f"Camera {i} (Backend {backend})"
+                        available_cameras.append((i, name))
+                cap.release()
+            except Exception:
+                continue
     
     return available_cameras
-
-
 
 def get_image_download_link(img, filename, text):
     """Gera um link para download da imagem."""
@@ -137,11 +137,10 @@ def get_image_download_link(img, filename, text):
 def main():
     st.set_page_config(page_title="Tricoscópio Digital", layout="wide")
     
-    # Aviso sobre ambiente cloud
     if not st.session_state.get('warning_shown'):
         st.warning("""
-        Nota: Este aplicativo pode ter funcionalidade limitada no ambiente cloud.
-        Para melhor experiência, considere executar localmente.
+        Nota: Este aplicativo requer acesso a uma câmera/microscópio.
+        Certifique-se de que o dispositivo está conectado corretamente.
         """)
         st.session_state.warning_shown = True
 
@@ -153,7 +152,6 @@ def main():
         st.session_state.camera_active = False
         st.session_state.available_cameras = detect_cameras()
         st.session_state.last_capture = None
-        st.session_state.current_camera_index = 0
     
     with st.sidebar:
         st.header("Controles")
@@ -161,7 +159,7 @@ def main():
         # Seleção de dispositivo
         available_cameras = st.session_state.available_cameras
         camera_names = [name for _, name in available_cameras]
-
+        
         selected_camera_name = st.selectbox(
             "Selecione o dispositivo",
             camera_names,
@@ -170,7 +168,7 @@ def main():
         
         selected_camera_index = next(
             (idx for idx, name in available_cameras if name == selected_camera_name),
-            0  # Fallback para câmera 0
+            -1
         )
 
         # Seleção de resolução
@@ -185,7 +183,7 @@ def main():
             list(resolutions.keys())
         )
         
-        # Botão para iniciar/parar câmera
+        # Botões de controle
         if not st.session_state.camera_active:
             if st.button("Iniciar Câmera"):
                 with st.spinner('Inicializando câmera...'):
@@ -193,27 +191,24 @@ def main():
                         width, height = resolutions[selected_resolution]
                         st.session_state.camera.set_resolution(width, height)
                         st.session_state.camera_active = True
-                        st.success(f"Câmera iniciada com sucesso")
                     else:
                         st.error("Falha ao inicializar a câmera")
         else:
             if st.button("Parar Câmera"):
                 st.session_state.camera.release()
                 st.session_state.camera_active = False
-                st.success("Câmera desativada")
         
-        # Botão para capturar imagem
         if st.session_state.camera_active:
             if st.button("Capturar Imagem"):
                 ret, frame = st.session_state.camera.read()
                 if ret:
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     st.session_state.last_capture = frame_rgb
-                    st.success("Imagem capturada! Verifique a seção de download.")
+                    st.success("Imagem capturada!")
                 else:
                     st.error("Erro ao capturar imagem")
     
-    # Área principal para exibição da imagem
+    # Área principal
     col1, col2 = st.columns([2, 1])
     
     with col1:
