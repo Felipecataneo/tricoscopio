@@ -127,6 +127,12 @@ def main():
             return
         
         camera_names = [name for _, name in available_cameras]
+
+                # Validate current_camera_index
+        if st.session_state.current_camera_index >= len(available_cameras):
+            st.session_state.current_camera_index = -1
+
+
         selected_camera_name = st.selectbox(
             "Selecione o dispositivo",
             camera_names,
@@ -225,3 +231,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
