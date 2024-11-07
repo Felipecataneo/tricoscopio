@@ -28,11 +28,9 @@ class SafeCamera:
             if not self.cap.isOpened():
                 return False
             
-            # Configurações básicas da câmera
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self.cap.set(cv2.CAP_PROP_FPS, 15)
             
-            # Tenta configurar a resolução inicial
             resolution = self.resolutions[self.current_resolution_index]
             self.set_resolution(resolution[0], resolution[1])
             
@@ -78,15 +76,21 @@ class SafeCamera:
 def detect_cameras():
     """Detecta câmeras disponíveis no sistema."""
     available_cameras = []
-    # Testa índices de -1 a 10
     for i in [-1] + list(range(11)):
-        cap = cv2.VideoCapture(i)
-        if cap.isOpened():
-            name = f"Camera {i}"
-            if i == -1:
-                name = "Tricoscópio USB (índice -1)"
-            available_cameras.append((i, name))
+        try:
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                name = f"Camera {i}"
+                if i == -1:
+                    name = "Tricoscópio USB (índice -1)"
+                available_cameras.append((i, name))
             cap.release()
+        except Exception:
+            continue
+    
+    if not available_cameras:
+        available_cameras.append((-1, "Tricoscópio USB (índice -1)"))  # Fallback option
+    
     return available_cameras
 
 def get_image_download_link(img, filename, text):
@@ -103,26 +107,41 @@ def main():
     
     st.title("Visualizador de Tricoscópio Digital")
     
-    # Inicialização da sessão state
+    # Initialize session state
     if 'camera' not in st.session_state:
         st.session_state.camera = SafeCamera()
         st.session_state.camera_active = False
         st.session_state.available_cameras = detect_cameras()
         st.session_state.last_capture = None
+        st.session_state.selected_camera_index = None
     
-    # Sidebar com controles
     with st.sidebar:
         st.header("Controles")
 
-        # Seleção de dispositivo
-        camera_options = {name: idx for idx, name in st.session_state.available_cameras}
-        selected_camera = st.selectbox(
+        # Create camera options dictionary with proper error handling
+        available_cameras = st.session_state.available_cameras
+        camera_options = [(idx, name) for idx, name in available_cameras]
+        
+        if not camera_options:
+            st.error("Nenhuma câmera detectada")
+            return
+        
+        # Camera selection
+        camera_names = [name for _, name in camera_options]
+        selected_camera_name = st.selectbox(
             "Selecione o dispositivo",
-            list(camera_options.keys()),
-            index=0 if camera_options else 0
+            camera_names,
+            index=0
         )
         
-        # Seleção de resolução
+        # Find the corresponding camera index
+        selected_camera_index = next(
+            (idx for idx, name in camera_options if name == selected_camera_name),
+            camera_options[0][0]  # Fallback to first camera if not found
+        )
+        st.session_state.selected_camera_index = selected_camera_index
+        
+        # Resolution selection
         resolutions = {
             "640x480 (VGA)": (640, 480),
             "1280x720 (HD)": (1280, 720),
@@ -134,61 +153,54 @@ def main():
             list(resolutions.keys())
         )
         
-        # Botão para iniciar/parar câmera
+        # Camera control buttons
         if not st.session_state.camera_active:
             if st.button("Iniciar Câmera"):
-                camera_index = camera_options[selected_camera]
-                if st.session_state.camera.initialize(camera_index):
+                if st.session_state.camera.initialize(selected_camera_index):
                     width, height = resolutions[selected_resolution]
                     st.session_state.camera.set_resolution(width, height)
                     st.session_state.camera_active = True
-                    st.success(f"Câmera iniciada com índice {camera_index}")
+                    st.success(f"Câmera iniciada com índice {selected_camera_index}")
                 else:
-                    st.error(f"Não foi possível inicializar a câmera com índice {camera_index}")
+                    st.error(f"Não foi possível inicializar a câmera com índice {selected_camera_index}")
         else:
             if st.button("Parar Câmera"):
                 st.session_state.camera.release()
                 st.session_state.camera_active = False
         
-        # Botão para capturar imagem
+        # Capture button
         if st.session_state.camera_active:
             if st.button("Capturar Imagem"):
                 ret, frame = st.session_state.camera.read()
                 if ret:
-                    # Converte BGR para RGB
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     st.session_state.last_capture = frame_rgb
                     st.success("Imagem capturada! Verifique a seção de download.")
                 else:
                     st.error("Erro ao capturar imagem")
     
-    # Área principal para exibição da imagem
+    # Main display area
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.header("Visualização em Tempo Real")
-        # Placeholder para o stream de vídeo
         video_placeholder = st.empty()
         
-        # Loop principal de exibição
         while st.session_state.camera_active:
             ret, frame = st.session_state.camera.read()
             if ret:
-                # Converte BGR para RGB
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
-            time.sleep(0.033)  # Aproximadamente 30 FPS
+            time.sleep(0.033)
     
     with col2:
         st.header("Última Captura")
         if st.session_state.last_capture is not None:
             st.image(st.session_state.last_capture, caption="Imagem Capturada", use_column_width=True)
             
-            # Gera nome do arquivo com timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"tricoscopia_{timestamp}.jpg"
             
-            # Cria link para download
             st.markdown(
                 get_image_download_link(
                     st.session_state.last_capture,
@@ -198,7 +210,6 @@ def main():
                 unsafe_allow_html=True
             )
             
-            # Botão para limpar última captura
             if st.button("Limpar última captura"):
                 st.session_state.last_capture = None
                 st.rerun()
