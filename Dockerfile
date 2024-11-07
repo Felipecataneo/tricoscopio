@@ -1,5 +1,5 @@
-# Use uma imagem base do Python
-FROM python:3.12-slim
+# Use uma versão específica do Python (3.9 é mais estável para este caso)
+FROM python:3.9-slim
 
 # Instale as dependências do sistema
 RUN apt-get update && apt-get install -y \
@@ -11,10 +11,16 @@ RUN apt-get update && apt-get install -y \
     libusb-1.0-0 \
     v4l-utils \
     udev \
+    python3-distutils \
+    python3-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure o diretório de trabalho
 WORKDIR /app
+
+# Atualize pip
+RUN python -m pip install --upgrade pip
 
 # Copie os arquivos necessários
 COPY requirements.txt .
