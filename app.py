@@ -76,8 +76,8 @@ class SafeCamera:
 def detect_cameras():
     """Detecta câmeras disponíveis no sistema."""
     available_cameras = []
-    # Testa índices de 0 a 2, reduzir o teste aos índices mais prováveis
-    for i in range(0, 3):
+    # Incluindo o índice -1 para testar no seu caso específico
+    for i in range(-1, 3):  # Ajuste para incluir -1
         try:
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
@@ -137,14 +137,13 @@ def main():
         )
         
         # Mapeia a seleção do selectbox para o índice de câmera
-        selected_camera_index = -1  # Fallback
-        for idx, name in available_cameras:
-            if name == selected_camera_name:
-                selected_camera_index = idx
-                break
+        selected_camera_index = next(
+            (idx for idx, name in available_cameras if name == selected_camera_name),
+            available_cameras[0][0]  # Fallback para a primeira câmera se não encontrar
+        )
 
         st.session_state.current_camera_index = camera_names.index(selected_camera_name)
-        
+
         # Seleção de resolução
         resolutions = {
             "640x480 (VGA)": (640, 480),
