@@ -6,22 +6,6 @@ import io
 from PIL import Image
 import time
 import base64
-import subprocess
-import os
-
-def check_video_devices():
-    """Verifica dispositivos de vídeo disponíveis no sistema Linux."""
-    try:
-        # Tenta listar dispositivos de vídeo disponíveis
-        devices = []
-        for i in range(10):  # Verifica até 10 possíveis dispositivos
-            device_path = f"/dev/video{i}"
-            if os.path.exists(device_path):
-                devices.append(i)
-        return devices
-    except Exception as e:
-        st.error(f"Erro ao verificar dispositivos: {str(e)}")
-        return []
 
 class SafeCamera:
     def __init__(self):
@@ -34,46 +18,48 @@ class SafeCamera:
             (2592, 1944)   # 5MP
         ]
         self.current_resolution_index = 0
-    
+
     def initialize(self, index):
         try:
             if self.cap is not None:
                 self.release()
             
-            st.info(f"Tentando inicializar câmera {index}")
+            st.info(f"Tentando inicializar dispositivo com índice {index}")
             
-            # Verifica se o dispositivo existe
-            device_path = f"/dev/video{index}"
-            if not os.path.exists(device_path):
-                st.error(f"Dispositivo {device_path} não encontrado")
-                return False
+            # Lista de tentativas de inicialização
+            attempts = [
+                lambda: cv2.VideoCapture(index),
+                lambda: cv2.VideoCapture(index + cv2.CAP_V4L),
+                lambda: cv2.VideoCapture(index + cv2.CAP_V4L2),
+                lambda: cv2.VideoCapture(-1),
+                lambda: cv2.VideoCapture(-1 + cv2.CAP_V4L),
+                lambda: cv2.VideoCapture(-1 + cv2.CAP_V4L2)
+            ]
             
-            # Tenta diferentes backends do OpenCV
-            backends = [cv2.CAP_V4L2, cv2.CAP_V4L]
-            
-            for backend in backends:
+            for i, attempt in enumerate(attempts):
                 try:
-                    self.cap = cv2.VideoCapture(index, backend)
+                    st.info(f"Tentativa {i+1} de inicialização...")
+                    self.cap = attempt()
                     if self.cap.isOpened():
-                        st.success(f"Câmera inicializada com backend {backend}")
-                        break
+                        st.success(f"Câmera inicializada na tentativa {i+1}")
+                        
+                        # Configurações básicas
+                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        self.cap.set(cv2.CAP_PROP_FPS, 15)
+                        
+                        # Testa se consegue ler um frame
+                        ret, frame = self.cap.read()
+                        if ret:
+                            self.initialized = True
+                            return True
+                        else:
+                            self.cap.release()
                 except Exception as e:
-                    st.warning(f"Falha ao tentar backend {backend}: {str(e)}")
+                    st.warning(f"Tentativa {i+1} falhou: {str(e)}")
+                    continue
             
-            if not self.cap or not self.cap.isOpened():
-                st.error("Nenhum backend funcionou")
-                return False
-            
-            # Configurações básicas
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            self.cap.set(cv2.CAP_PROP_FPS, 15)
-            
-            # Define resolução inicial
-            resolution = self.resolutions[0]
-            self.set_resolution(resolution[0], resolution[1])
-            
-            self.initialized = True
-            return True
+            st.error("Não foi possível inicializar a câmera com nenhum método")
+            return False
             
         except Exception as e:
             st.error(f"Erro na inicialização da câmera: {str(e)}")
@@ -91,13 +77,12 @@ class SafeCamera:
             actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
             actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
             
-            st.info(f"Resolução definida: {actual_width}x{actual_height}")
             return actual_width, actual_height
             
         except Exception as e:
             st.error(f"Erro ao definir resolução: {str(e)}")
             return None, None
-    
+
     def read(self):
         if not self.initialized or self.cap is None:
             return False, None
@@ -106,7 +91,7 @@ class SafeCamera:
         except Exception as e:
             st.error(f"Erro na leitura da câmera: {str(e)}")
             return False, None
-    
+
     def release(self):
         try:
             if self.cap is not None:
@@ -120,23 +105,21 @@ def detect_cameras():
     """Detecta câmeras disponíveis no sistema."""
     available_cameras = []
     
-    # Verifica dispositivos de vídeo no Linux
-    video_devices = check_video_devices()
-    st.info(f"Dispositivos de vídeo encontrados: {video_devices}")
+    # Adiciona opção de auto-detecção
+    available_cameras.append((-1, "Auto Detect Camera"))
     
-    for i in video_devices:
+    # Testa índices positivos
+    for i in range(4):
         try:
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
-                name = f"Camera {i}"
-                available_cameras.append((i, name))
+                ret, frame = cap.read()
+                if ret:
+                    name = f"Camera {i}"
+                    available_cameras.append((i, name))
             cap.release()
-        except Exception as e:
-            st.warning(f"Erro ao testar câmera {i}: {str(e)}")
+        except Exception:
             continue
-    
-    if not available_cameras:
-        available_cameras.append((0, "Camera 0"))  # Fallback para câmera padrão
     
     return available_cameras
 
